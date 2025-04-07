@@ -1,0 +1,8 @@
+os
+langchain
+dashscope
+faiss-cpu
+python-dotenv
+sentence-transformers
+markdownify
+beautifulsoup4
