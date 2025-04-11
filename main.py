@@ -1,81 +1,78 @@
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 
-# 读取 Markdown 文本
+# Read the Markdown text
 with open("data/VideoRAG_cleaned.md", "r", encoding="utf-8") as f:
     md_text = f.read()
 
-# 指定标题分级规则
+# Define header levels to split on
 headers_to_split_on = [
     ("#", "H1"),
     ("##", "H2"),
     ("###", "H3"),
 ]
 
-# 使用 MarkdownHeaderTextSplitter 切分
+# Split using MarkdownHeaderTextSplitter
 splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
 docs = splitter.split_text(md_text)
 
-# 提取文本内容
+# Extract plain text content
 raw_chunks = [doc.page_content.strip() for doc in docs]
 
-# 合并过短片段的逻辑
+# Merge chunks that are too short
 merged_chunks = []
 buffer = ""
 
-min_chunk_length = 200  # 最小长度阈值
+min_chunk_length = 200  # Minimum chunk length threshold
 
 for chunk in raw_chunks:
     if len(chunk) < min_chunk_length:
-        buffer += "\n\n" + chunk  # 累加到缓存
+        buffer += "\n\n" + chunk  # Accumulate into buffer
     else:
         if buffer:
             merged_chunks.append(buffer.strip())
             buffer = ""
         merged_chunks.append(chunk.strip())
 
-# 添加最后缓存内容
+# Add any remaining buffer content
 if buffer:
     merged_chunks.append(buffer.strip())
 
-# 最终 chunks 结果
+# Final chunks to use
 chunks = merged_chunks
 
-#Embedding
+# Embedding
 from langchain_huggingface import HuggingFaceEmbeddings
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vector_store = [embeddings.embed_query(chunk) for chunk in chunks]
 
-#Vector Store
+# Vector Store
 from langchain_community.vectorstores import FAISS
 
 vectorstore = FAISS.from_texts(chunks, embeddings)
 vectorstore.save_local("faiss_index")
 
-#Retriever
+# Retriever
 vectorstore = FAISS.load_local(
     "faiss_index", 
     embeddings, 
-    allow_dangerous_deserialization=True  # 允许 pickle 反序列化
+    allow_dangerous_deserialization=True  # Allow pickle deserialization
 )
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5})  # 取前 5 个最相关的片段
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})  # Retrieve top 5 relevant chunks
 
 
-# #
-# query = "Table 4 中记录了哪些数据？"
+# Example queries (uncomment to use)
+# query = "What data is recorded in Table 4?"
 # docs = retriever.invoke(query)
 
 # for doc in docs:
 #     print(doc.page_content)
 
-
-
-
-# for doc in retriever.get_relevant_documents("作者是否使用了 GPT-4 作为基础模型？"):
+# for doc in retriever.get_relevant_documents("Did the authors use GPT-4 as the base model?"):
 #     print(doc.page_content[:300])
 
 
-#集成 Qwen API（生成器）
+# Integrate Qwen API (generator)
 from langchain_community.chat_models import ChatTongyi
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -83,37 +80,35 @@ import os
 import dashscope
 from dotenv import load_dotenv
 
-# 加载 .env 文件中的变量
+# Load variables from .env file
 load_dotenv()
 
-# 从环境变量读取 API Key
+# Read API Key from environment variables
 api_key = os.getenv("ALIYUN_API_KEY")
 if not api_key:
-    raise ValueError("未找到 ALIYUN_API_KEY，请检查 .env 文件是否正确配置")
+    raise ValueError("ALIYUN_API_KEY not found. Please check your .env configuration.")
 
 llm = ChatTongyi(model="qwen-turbo",
-                  api_key=api_key,
-                   temperature=0)
+                 api_key=api_key,
+                 temperature=0)
 
-
-
-# 自定义 Prompt
+# Custom prompt
 custom_prompt = PromptTemplate(
     input_variables=["context", "question"],
-    template="""你是一位学术助手，下面是从论文中检索到的相关内容，请基于这些内容来回答用户的问题。
+    template="""You are an academic assistant. Below is the relevant content retrieved from a paper. Please answer the user's question based on this content.
 
-[论文内容]
+[Paper Content]
 {context}
 
-[问题]
+[Question]
 {question}
 
-请用简洁自然语言回答，不要进行打分、比较、或生成多种答案。
-如果无法确定答案，请直接说明你无法确定。
+Please respond concisely and naturally. Do not provide scores, comparisons, or multiple answers.
+If you cannot determine the answer, simply state that you are unsure.
 """
 )
 
-# 构建 RAG 问答链，加入 prompt
+# Build RAG QA chain with custom prompt
 qa_chain = RetrievalQA.from_chain_type(
     llm,
     retriever=retriever,
@@ -121,9 +116,14 @@ qa_chain = RetrievalQA.from_chain_type(
     chain_type_kwargs={"prompt": custom_prompt}
 )
 
-
-# 进行查询
-query = "论文中提到了哪些与以往工作的不同之处？"
+# Execute a query
+# query = "What are the key differences mentioned in the paper compared to previous works?"
+query = "请总结作者在实验部分中得出的关键结论"
+#请简要说明这篇论文提出的核心方法是什么？论文中提到了哪些与以往工作的不同之处？该方法适用于哪些场景？是否具有通用性？
+#Table 1 展示了哪些类型的视频数据？各自的数据量如何？
+#Table 2 的主要内容是什么？它在论文中起到了什么作用？
+#Figure 1 中展示的场景在整个系统中起到什么作用？
+#请总结作者在实验部分中得出的关键结论
 response = qa_chain.invoke(query)
 
 print(response)
