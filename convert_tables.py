@@ -39,6 +39,6 @@ def convert_html_tables_in_markdown(input_path, output_path):
 
 # Example usage (adjust file paths as needed)
 if __name__ == "__main__":
-    input_file = "data/VideoRAG.md"             # Original Markdown file
-    output_file = "data/VideoRAG_cleaned.md"    # Output cleaned Markdown file
+    input_file = "data/Multilingual.md"             # Original Markdown file
+    output_file = "data/Multilingual_cleaned.md"    # Output cleaned Markdown file
     convert_html_tables_in_markdown(input_file, output_file)

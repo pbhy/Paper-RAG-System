@@ -1,76 +1,63 @@
+import pandas as pd
+
+# 将 iris.csv 读取为 pandas DataFrame 并转换为 Markdown 表格
+df = pd.read_csv("data/iris.csv")
+
+# 如果你要添加一个 markdown 标题作为 H1，用于后续 header 切分：
+md_text = "# Iris Dataset\n\n" + df.to_markdown(index=False)
+
 from langchain.text_splitter import MarkdownHeaderTextSplitter
 
-# Read the Markdown text
-with open("data/VideoRAG_cleaned.md", "r", encoding="utf-8") as f:
-    md_text = f.read()
-
-# Define header levels to split on
+# 定义只按 "# Iris Dataset" 作为一级标题切分（模拟你的 md 结构）
 headers_to_split_on = [
     ("#", "H1"),
-    ("##", "H2"),
-    ("###", "H3"),
 ]
-
-# Split using MarkdownHeaderTextSplitter
 splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
 docs = splitter.split_text(md_text)
 
-# Extract plain text content
+# 提取 page_content 字符串
 raw_chunks = [doc.page_content.strip() for doc in docs]
 
-# Merge chunks that are too short
 merged_chunks = []
 buffer = ""
-
-min_chunk_length = 200  # Minimum chunk length threshold
+min_chunk_length = 200
 
 for chunk in raw_chunks:
     if len(chunk) < min_chunk_length:
-        buffer += "\n\n" + chunk  # Accumulate into buffer
+        buffer += "\n\n" + chunk
     else:
         if buffer:
             merged_chunks.append(buffer.strip())
             buffer = ""
         merged_chunks.append(chunk.strip())
 
-# Add any remaining buffer content
 if buffer:
     merged_chunks.append(buffer.strip())
 
-# Final chunks to use
+# 最终 chunks
 chunks = merged_chunks
 
-# Embedding
+
 from langchain_huggingface import HuggingFaceEmbeddings
-
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vector_store = [embeddings.embed_query(chunk) for chunk in chunks]
-
-# Vector Store
 from langchain_community.vectorstores import FAISS
 
+# 使用 HuggingFace Embedding 模型
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# 构建向量数据库
 vectorstore = FAISS.from_texts(chunks, embeddings)
-vectorstore.save_local("faiss_index")
 
-# Retriever
+# 保存索引
+vectorstore.save_local("faiss_index_iris")
+
+# 加载
 vectorstore = FAISS.load_local(
-    "faiss_index", 
+    "faiss_index_iris", 
     embeddings, 
-    allow_dangerous_deserialization=True  # Allow pickle deserialization
+    allow_dangerous_deserialization=True
 )
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5})  # Retrieve top 5 relevant chunks
 
-
-# Example queries (uncomment to use)
-# query = "What data is recorded in Table 4?"
-# docs = retriever.invoke(query)
-
-# for doc in docs:
-#     print(doc.page_content)
-
-# for doc in retriever.get_relevant_documents("Did the authors use GPT-4 as the base model?"):
-#     print(doc.page_content[:300])
-
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # Integrate Qwen API (generator)
 from langchain_community.chat_models import ChatTongyi
@@ -117,13 +104,8 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 # Execute a query
-# query = "What are the key differences mentioned in the paper compared to previous works?"
-query = "Figure 1 中展示的场景在整个系统中起到什么作用？"
-#请简要说明这篇论文提出的核心方法是什么？论文中提到了哪些与以往工作的不同之处？该方法适用于哪些场景？是否具有通用性？
-#Table 1 展示了哪些类型的视频数据？各自的数据量如何？
-#Table 2 的主要内容是什么？它在论文中起到了什么作用？
-#Figure 1 中展示的场景在整个系统中起到什么作用？
-#请总结作者在实验部分中得出的关键结论
+query = "每种鸢尾有多少个观测值？"
+
 response = qa_chain.invoke(query)
 
 print(response)

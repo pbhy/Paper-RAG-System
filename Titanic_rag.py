@@ -1,76 +1,62 @@
+import pandas as pd
 from langchain.text_splitter import MarkdownHeaderTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 
-# Read the Markdown text
-with open("data/VideoRAG_cleaned.md", "r", encoding="utf-8") as f:
-    md_text = f.read()
+### Step 1. 读取 Excel 数据为 DataFrame
+df = pd.read_excel("data/Titanic.xlsx")
 
-# Define header levels to split on
+# 可选：填充空值，清洗表格（避免 markdown 表格出错）
+df.fillna("N/A", inplace=True)
+
+# Step 2. 转为 markdown 格式文本 + 添加一级标题
+md_text = "# Titanic Passenger Dataset\n\n" + df.to_markdown(index=False)
+
+### Step 3. 按 Markdown Header 切分
 headers_to_split_on = [
-    ("#", "H1"),
-    ("##", "H2"),
-    ("###", "H3"),
+    ("#", "H1"),  # 模拟你的原始 md 切分方式
 ]
-
-# Split using MarkdownHeaderTextSplitter
 splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
 docs = splitter.split_text(md_text)
 
-# Extract plain text content
+# Step 4. 提取文本 + 合并过短片段（与你之前相同）
 raw_chunks = [doc.page_content.strip() for doc in docs]
 
-# Merge chunks that are too short
 merged_chunks = []
 buffer = ""
-
-min_chunk_length = 200  # Minimum chunk length threshold
+min_chunk_length = 200
 
 for chunk in raw_chunks:
     if len(chunk) < min_chunk_length:
-        buffer += "\n\n" + chunk  # Accumulate into buffer
+        buffer += "\n\n" + chunk
     else:
         if buffer:
             merged_chunks.append(buffer.strip())
             buffer = ""
         merged_chunks.append(chunk.strip())
 
-# Add any remaining buffer content
 if buffer:
     merged_chunks.append(buffer.strip())
 
-# Final chunks to use
 chunks = merged_chunks
 
-# Embedding
-from langchain_huggingface import HuggingFaceEmbeddings
-
+# 嵌入模型
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vector_store = [embeddings.embed_query(chunk) for chunk in chunks]
 
-# Vector Store
-from langchain_community.vectorstores import FAISS
-
+# 构建向量数据库
 vectorstore = FAISS.from_texts(chunks, embeddings)
-vectorstore.save_local("faiss_index")
 
-# Retriever
+# 保存
+vectorstore.save_local("faiss_index_titanic")
+
+# 加载向量库
 vectorstore = FAISS.load_local(
-    "faiss_index", 
+    "faiss_index_titanic", 
     embeddings, 
-    allow_dangerous_deserialization=True  # Allow pickle deserialization
+    allow_dangerous_deserialization=True
 )
-retriever = vectorstore.as_retriever(search_kwargs={"k": 5})  # Retrieve top 5 relevant chunks
 
-
-# Example queries (uncomment to use)
-# query = "What data is recorded in Table 4?"
-# docs = retriever.invoke(query)
-
-# for doc in docs:
-#     print(doc.page_content)
-
-# for doc in retriever.get_relevant_documents("Did the authors use GPT-4 as the base model?"):
-#     print(doc.page_content[:300])
-
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # Integrate Qwen API (generator)
 from langchain_community.chat_models import ChatTongyi
@@ -117,13 +103,8 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 # Execute a query
-# query = "What are the key differences mentioned in the paper compared to previous works?"
-query = "Figure 1 中展示的场景在整个系统中起到什么作用？"
-#请简要说明这篇论文提出的核心方法是什么？论文中提到了哪些与以往工作的不同之处？该方法适用于哪些场景？是否具有通用性？
-#Table 1 展示了哪些类型的视频数据？各自的数据量如何？
-#Table 2 的主要内容是什么？它在论文中起到了什么作用？
-#Figure 1 中展示的场景在整个系统中起到什么作用？
-#请总结作者在实验部分中得出的关键结论
+query = "乘客的存活率是多少？乘客的平均年龄是多少？男女乘客的比例是多少？哪一类乘客的存活率最高？"
+
 response = qa_chain.invoke(query)
 
 print(response)
